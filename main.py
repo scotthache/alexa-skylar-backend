@@ -1,9 +1,10 @@
-cat > main.py << 'EOF'
 from fastapi import FastAPI
 from pydantic import BaseModel
-import subprocess
-import json
-from datetime import datetime
+import httpx
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = FastAPI()
 
@@ -13,48 +14,54 @@ class AlexaRequest(BaseModel):
 class AlexaResponse(BaseModel):
     speak: str
 
+OPENCLAW_SESSION_KEY = os.getenv("OPENCLAW_SESSION_KEY", "default")
+OPENCLAW_API_URL = os.getenv("OPENCLAW_API_URL", "http://localhost:8000")
+
+def is_calendar_query(query: str) -> bool:
+    """Check if query is about calendar"""
+    keywords = ["calendar", "schedule", "meeting", "appointment", "event", "today", "tomorrow"]
+    return any(k in query.lower() for k in keywords)
+
 @app.post("/alexa")
 async def handle_alexa(req: AlexaRequest):
+    """
+    Receive query from Alexa skill.
+    Forward to OpenClaw.
+    Return response.
+    """
     query = req.query.strip()
     
-    # Test: just return the query back
-    return AlexaResponse(speak=f"You asked: {query}")
-
-@app.post("/test-calendar")
-async def test_calendar():
-    """Test endpoint to debug calendar"""
+    if not query:
+        return AlexaResponse(speak="I didn't catch that. Could you repeat?")
+    
     try:
-        result = subprocess.run(
-            ["gog", "calendar", "list", "--account", "scott@platinumsynergy.ca", "--json", "--max", "1"],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        
-        if result.returncode != 0:
-            return {"error": f"gog failed: {result.stderr}"}
-        
-        data = json.loads(result.stdout)
-        events = data.get("events", [])
-        
-        if not events:
-            return {"error": "No events"}
-        
-        event = events[0]
-        summary = event.get("summary", "NO SUMMARY")
-        
-        return {
-            "success": True,
-            "summary": summary,
-            "raw_event": event
-        }
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{OPENCLAW_API_URL}/sessions/send",
+                json={
+                    "sessionKey": OPENCLAW_SESSION_KEY,
+                    "message": query,
+                    "timeoutSeconds": 10
+                },
+                timeout=15.0
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                reply = data.get("message", "No response received")
+                
+                # Shorten for voice if needed
+                if len(reply) > 500:
+                    reply = reply[:497] + "..."
+                
+                return AlexaResponse(speak=reply)
+            else:
+                return AlexaResponse(speak="Sorry, I couldn't process that right now.")
+    
     except Exception as e:
-        return {"error": str(e)}
+        print(f"Error: {e}")
+        return AlexaResponse(speak="There was an error processing your request.")
 
 @app.get("/health")
 async def health():
     return {"status": "ok"}
-EOF
-
-
-[paste the code above]
