@@ -33,7 +33,7 @@ No Slack mentions today.
 No priority tasks.
 
 ════════════════════════════════════════════════════════════
-Report generated at 05:26 PM
+Report generated at 05:32 PM
 """
 
 def format_for_alexa(text: str) -> str:
@@ -74,7 +74,7 @@ def format_for_alexa(text: str) -> str:
     closing = "Have a great day!"
     
     full = intro + weather + calendar + closing
-    return f"<speak>{full}</speak>"
+    return full
 
 @app.post("/alexa")
 async def handle_alexa(request: Request):
@@ -82,26 +82,18 @@ async def handle_alexa(request: Request):
     intent_name = body.get('request', {}).get('intent', {}).get('name', '')
     
     text = "I'm not sure how to help with that."
-    output_type = "PlainText"
     
     if intent_name == "ReadMorningReportIntent":
         text = format_for_alexa(SAMPLE_REPORT)
-        output_type = "SSML"
-    
-    response_speech = {
-        "type": output_type
-    }
-    
-    if output_type == "SSML":
-        response_speech["ssml"] = text
-    else:
-        response_speech["text"] = text
     
     return {
         "version": "1.0",
         "sessionAttributes": {},
         "response": {
-            "outputSpeech": response_speech,
+            "outputSpeech": {
+                "type": "PlainText",
+                "text": text
+            },
             "shouldEndSession": True
         }
     }
