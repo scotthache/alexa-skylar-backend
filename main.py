@@ -30,22 +30,22 @@ No Slack mentions today.
 No priority tasks.
 
 ════════════════════════════════════════════════════════════
-Report generated at 05:18 PM
+Report generated at 05:20 PM
 """
 
 def format_for_alexa(text: str) -> str:
-    """Format report for Alexa"""
-    intro = "Good morning Scott. It's Skylar with your morning report. "
+    """Format report for Alexa with SSML"""
+    intro = "Good morning Scott. <break time='500ms'/> It's Skylar with your morning report. <break time='1s'/> "
     
     text = re.sub(r'═+', '', text)
     text = re.sub(r'─+', '', text)
     text = text.replace('DAILY MORNING REPORT', '')
     text = text.replace('Tuesday, April', '')
-    text = text.replace('📋 WEATHER', 'WEATHER.')
-    text = text.replace('📋 CALENDAR', 'CALENDAR.')
-    text = text.replace('📋 EMAILS', 'EMAILS.')
-    text = text.replace('📋 SLACK', 'SLACK.')
-    text = text.replace('📋 TRELLO', 'PRIORITY TASKS.')
+    text = text.replace('📋 WEATHER', '<break time="500ms"/> Weather. ')
+    text = text.replace('📋 CALENDAR', '<break time="500ms"/> Calendar. ')
+    text = text.replace('📋 EMAILS', '<break time="500ms"/> Emails. ')
+    text = text.replace('📋 SLACK', '<break time="500ms"/> Slack. ')
+    text = text.replace('📋 TRELLO', '<break time="500ms"/> Priority Tasks. ')
     text = text.replace('☀️', '')
     text = text.replace('•', '')
     
@@ -53,8 +53,10 @@ def format_for_alexa(text: str) -> str:
     continuous = ' '.join(lines)
     continuous = re.sub(r'\s+', ' ', continuous)
     
-    closing = " That's your complete morning briefing. Have a great day!"
-    return intro + continuous + closing
+    closing = " <break time='500ms'/> That's your complete morning briefing. Have a great day!"
+    full = intro + continuous + closing
+    
+    return f"<speak>{full}</speak>"
 
 @app.post("/alexa")
 async def handle_alexa(request: Request):
@@ -62,17 +64,19 @@ async def handle_alexa(request: Request):
     intent_name = body.get('request', {}).get('intent', {}).get('name', '')
     
     text = "I'm not sure how to help with that."
+    output_type = "PlainText"
     
     if intent_name == "ReadMorningReportIntent":
         text = format_for_alexa(SAMPLE_REPORT)
+        output_type = "SSML"
     
     return {
         "version": "1.0",
         "sessionAttributes": {},
         "response": {
             "outputSpeech": {
-                "type": "PlainText",
-                "text": text
+                "type": output_type,
+                "ssml" if output_type == "SSML" else "text": text
             },
             "shouldEndSession": True
         }
