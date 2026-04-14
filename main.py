@@ -3,8 +3,6 @@ import re
 
 app = FastAPI()
 
-SKYLAR_IMAGE_URL = "https://drive.google.com/uc?export=view&id=1JPWChru2sYvAfStivzhtZdMecDGWQ9gT"
-
 SAMPLE_REPORT = """☀️ DAILY MORNING REPORT
 Tuesday, April 14, 2026
 ════════════════════════════════════════════════════════════
@@ -32,7 +30,7 @@ No Slack mentions today.
 No priority tasks.
 
 ════════════════════════════════════════════════════════════
-Report generated at 05:16 PM
+Report generated at 05:18 PM
 """
 
 def format_for_alexa(text: str) -> str:
@@ -43,19 +41,12 @@ def format_for_alexa(text: str) -> str:
     text = re.sub(r'─+', '', text)
     text = text.replace('DAILY MORNING REPORT', '')
     text = text.replace('Tuesday, April', '')
-    text = text.replace('Wednesday, April', '')
-    text = text.replace('Thursday, April', '')
-    text = text.replace('Friday, April', '')
-    text = text.replace('Monday, April', '')
     text = text.replace('📋 WEATHER', 'WEATHER.')
     text = text.replace('📋 CALENDAR', 'CALENDAR.')
     text = text.replace('📋 EMAILS', 'EMAILS.')
     text = text.replace('📋 SLACK', 'SLACK.')
     text = text.replace('📋 TRELLO', 'PRIORITY TASKS.')
     text = text.replace('☀️', '')
-    text = text.replace('📅', '')
-    text = text.replace('📧', '')
-    text = text.replace('💬', '')
     text = text.replace('•', '')
     
     lines = [line.strip() for line in text.split('\n') if line.strip() and 'Report generated' not in line]
@@ -63,12 +54,7 @@ def format_for_alexa(text: str) -> str:
     continuous = re.sub(r'\s+', ' ', continuous)
     
     closing = " That's your complete morning briefing. Have a great day!"
-    full = intro + continuous + closing
-    
-    if len(full) > 5000:
-        full = full[:4997] + "..."
-    
-    return full
+    return intro + continuous + closing
 
 @app.post("/alexa")
 async def handle_alexa(request: Request):
@@ -85,8 +71,8 @@ async def handle_alexa(request: Request):
         "sessionAttributes": {},
         "response": {
             "outputSpeech": {
-                "type": "SSML",
-                "ssml": f'<speak><amazon:image id="Skylar" src="{SKYLAR_IMAGE_URL}"/>{text}</speak>'
+                "type": "PlainText",
+                "text": text
             },
             "shouldEndSession": True
         }
