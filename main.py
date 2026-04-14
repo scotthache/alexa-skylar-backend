@@ -29,12 +29,18 @@ def is_morning_report_query(query: str) -> bool:
 def get_morning_report() -> str:
     """Run the morning report script and get the text version"""
     try:
+        print(f"DEBUG: Starting morning report generation", file=sys.stderr)
+        
         result = subprocess.run([
             'python3',
             '/Users/scotthache/.openclaw/workspace/daily_morning_report.py'
         ], capture_output=True, text=True, timeout=60)
         
-        if result.returncode == 0:
+        print(f"DEBUG: Script returned code {result.returncode}", file=sys.stderr)
+        print(f"DEBUG: STDOUT length: {len(result.stdout)}", file=sys.stderr)
+        print(f"DEBUG: STDERR: {result.stderr[:500]}", file=sys.stderr)
+        
+        if result.returncode == 0 and result.stdout:
             # Extract report between the === markers
             lines = result.stdout.split('\n')
             
@@ -45,6 +51,8 @@ def get_morning_report() -> str:
                     start_idx = i
                     break
             
+            print(f"DEBUG: Found report at line {start_idx}", file=sys.stderr)
+            
             # Find end (Report generated line)
             end_idx = len(lines)
             for i, line in enumerate(lines):
@@ -54,17 +62,22 @@ def get_morning_report() -> str:
             
             if start_idx >= 0:
                 report_text = '\n'.join(lines[start_idx:end_idx])
+                print(f"DEBUG: Extracted {len(report_text)} chars of report", file=sys.stderr)
                 return report_text
-            
-            return "I couldn't extract the morning report content."
+            else:
+                print(f"DEBUG: Could not find report start marker", file=sys.stderr)
+                return "I couldn't extract the morning report content."
         else:
-            print(f"Script error: {result.stderr}", file=sys.stderr)
+            print(f"DEBUG: Script failed or no output", file=sys.stderr)
             return "There was an error generating the morning report."
     except subprocess.TimeoutExpired:
-        return "The morning report took too long to generate. Please try again."
+        print(f"DEBUG: Script timeout", file=sys.stderr)
+        return "The morning report took too long to generate."
     except Exception as e:
-        print(f"Error getting morning report: {e}", file=sys.stderr)
-        return f"Sorry, I encountered an error."
+        print(f"DEBUG: Exception: {str(e)}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return f"Error: {str(e)[:50]}"
 
 def format_for_alexa(text: str) -> str:
     """Format text for Alexa speech as one continuous flow"""
@@ -116,9 +129,6 @@ def format_for_alexa(text: str) -> str:
     # Limit to 5000 chars
     if len(full_text) > 5000:
         full_text = full_text[:4997] + "..."
-    
-    print(f"DEBUG: Full text length: {len(full_text)}", file=sys.stderr)
-    print(f"DEBUG: First 200 chars: {full_text[:200]}", file=sys.stderr)
     
     return full_text
 
