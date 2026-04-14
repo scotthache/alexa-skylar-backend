@@ -21,6 +21,9 @@ class AlexaResponse(BaseModel):
 OPENCLAW_SESSION_KEY = os.getenv("OPENCLAW_SESSION_KEY", "default")
 OPENCLAW_API_URL = os.getenv("OPENCLAW_API_URL", "http://localhost:8000")
 
+# Skylar's avatar image from Google Drive
+SKYLAR_IMAGE_URL = "https://drive.google.com/uc?export=view&id=1JPWChru2sYvAfStivzhtZdMecDGWQ9gT"
+
 def is_morning_report_query(query: str) -> bool:
     """Check if query is asking for morning report"""
     keywords = ["morning report", "daily report", "read my report", "what's my report"]
@@ -132,6 +135,12 @@ def format_for_alexa(text: str) -> str:
     
     return full_text
 
+def add_image_to_ssml(text: str) -> str:
+    """Wrap text in SSML with image for Echo Show devices"""
+    # SSML with image display
+    ssml = f'<speak><amazon:image id="Skylar" src="{SKYLAR_IMAGE_URL}"/>{text}</speak>'
+    return ssml
+
 @app.post("/alexa")
 async def handle_alexa(req: AlexaRequest):
     """Handle Alexa requests"""
@@ -144,6 +153,9 @@ async def handle_alexa(req: AlexaRequest):
     if is_morning_report_query(query):
         report = get_morning_report()
         formatted = format_for_alexa(report)
+        # Add image for Echo Show devices
+        if "echo show" in query.lower() or True:  # Always add for morning report
+            formatted = add_image_to_ssml(formatted)
         return AlexaResponse(speak=formatted)
     
     # Default: forward to OpenClaw
