@@ -69,7 +69,7 @@ def get_morning_report() -> str:
 def format_for_alexa(text: str) -> str:
     """Format text for Alexa speech with proper pacing"""
     # Add intro
-    intro = "Good morning! Here's your morning report from Skylar. "
+    intro = "Good morning Scott. It's Skylar with your morning report. "
     
     # Clean up visual separators
     text = re.sub(r'═+', '', text)
