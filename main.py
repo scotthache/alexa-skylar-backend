@@ -1,5 +1,4 @@
 from fastapi import FastAPI, Request
-import httpx
 import sys
 import re
 
@@ -7,14 +6,13 @@ app = FastAPI()
 
 SKYLAR_IMAGE_URL = "https://drive.google.com/uc?export=view&id=1JPWChru2sYvAfStivzhtZdMecDGWQ9gT"
 
-async def get_cached_report() -> str:
-    """Download the cached morning report from Google Drive"""
+def get_cached_report() -> str:
+    """Read the cached morning report from local file"""
     try:
-        # Read from local cache file (works if Railway can access your Mac)
         with open('/Users/scotthache/.openclaw/workspace/alexa_report_cache.txt', 'r') as f:
             return f.read()
     except:
-        return "The morning report is not available yet. Please try again in a few moments."
+        return "The morning report is not available yet."
 
 def format_for_alexa(text: str) -> str:
     """Format report for Alexa"""
@@ -71,17 +69,36 @@ async def handle_alexa(request: Request):
     """Handle Alexa skill request"""
     try:
         body = await request.json()
-        intent_name = body.get('request', {}).get('intent', {}).get('name', '')
+        print(f"Request: {str(body)[:200]}", file=sys.stderr)
         
-        if intent_name in ["ReadMorningReportIntent", "AskSkylarIntent"]:
-            report = await get_cached_report()
+        # Extract intent from the request
+        request_obj = body.get('request', {})
+        intent_name = request_obj.get('intent', {}).get('name', '')
+        
+        print(f"Intent: {intent_name}", file=sys.stderr)
+        
+        # Handle morning report intent
+        if intent_name == "ReadMorningReportIntent":
+            report = get_cached_report()
             formatted = format_for_alexa(report)
             return build_alexa_response(formatted)
+        
+        # Handle ask skylar intent
+        if intent_name == "AskSkylarIntent":
+            slots = request_obj.get('intent', {}).get('slots', {})
+            query = slots.get('query', {}).get('value', '') if slots else ''
+            
+            if query and any(k in query.lower() for k in ["morning", "report"]):
+                report = get_cached_report()
+                formatted = format_for_alexa(report)
+                return build_alexa_response(formatted)
         
         return build_alexa_response("I'm not sure how to help with that.")
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
-        return build_alexa_response("Error processing request.")
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return build_alexa_response("Error processing your request.")
 
 @app.get("/health")
 async def health():
