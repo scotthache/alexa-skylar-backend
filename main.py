@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import subprocess
 from datetime import datetime
 import sys
+import re
 
 load_dotenv()
 
@@ -20,11 +21,6 @@ class AlexaResponse(BaseModel):
 OPENCLAW_SESSION_KEY = os.getenv("OPENCLAW_SESSION_KEY", "default")
 OPENCLAW_API_URL = os.getenv("OPENCLAW_API_URL", "http://localhost:8000")
 
-def is_calendar_query(query: str) -> bool:
-    """Check if query is about calendar"""
-    keywords = ["calendar", "schedule", "meeting", "appointment", "event", "today", "tomorrow"]
-    return any(k in query.lower() for k in keywords)
-
 def is_morning_report_query(query: str) -> bool:
     """Check if query is asking for morning report"""
     keywords = ["morning report", "daily report", "read my report", "what's my report"]
@@ -38,30 +34,29 @@ def get_morning_report() -> str:
             '/Users/scotthache/.openclaw/workspace/daily_morning_report.py'
         ], capture_output=True, text=True, timeout=60)
         
-        print(f"Script return code: {result.returncode}", file=sys.stderr)
-        print(f"STDOUT length: {len(result.stdout)}", file=sys.stderr)
-        print(f"STDERR: {result.stderr[:500]}", file=sys.stderr)
-        
         if result.returncode == 0:
-            # Find the actual report content (between === lines)
+            # Extract report between the === markers
             lines = result.stdout.split('\n')
-            report_start = -1
-            report_end = -1
             
+            # Find start (DAILY MORNING REPORT line)
+            start_idx = -1
             for i, line in enumerate(lines):
-                if '═' in line and 'DAILY MORNING REPORT' in ''.join(lines[max(0,i-1):i+2]):
-                    report_start = i
-                if report_start > -1 and i > report_start and '═' in line and 'Report generated' in ''.join(lines[max(0,i-1):i+2]):
-                    report_end = i
+                if 'DAILY MORNING REPORT' in line:
+                    start_idx = i - 1  # Include the === line
                     break
             
-            if report_start > -1:
-                report_lines = lines[report_start:report_end if report_end > -1 else len(lines)]
-                report_text = '\n'.join(report_lines)
-                if len(report_text.strip()) > 100:
-                    return report_text
+            # Find end (Report generated line)
+            end_idx = len(lines)
+            for i, line in enumerate(lines):
+                if 'Report generated at' in line:
+                    end_idx = i + 1
+                    break
             
-            return "I couldn't generate the complete morning report. Please try again."
+            if start_idx >= 0:
+                report_text = '\n'.join(lines[start_idx:end_idx])
+                return report_text
+            
+            return "I couldn't extract the morning report content."
         else:
             print(f"Script error: {result.stderr}", file=sys.stderr)
             return "There was an error generating the morning report."
@@ -69,26 +64,27 @@ def get_morning_report() -> str:
         return "The morning report took too long to generate. Please try again."
     except Exception as e:
         print(f"Error getting morning report: {e}", file=sys.stderr)
-        return f"Sorry, I couldn't retrieve the morning report. Error: {str(e)[:100]}"
+        return f"Sorry, I encountered an error. {str(e)[:80]}"
 
 def format_for_alexa(text: str) -> str:
     """Format text for Alexa speech with proper pacing"""
-    # Remove unnecessary characters
-    text = text.replace('═', '')
-    text = text.replace('─', '')
+    # Clean up visual separators
+    text = re.sub(r'═+', '', text)
+    text = re.sub(r'─+', '', text)
+    text = text.replace('📋', '')
+    text = text.replace('☀️', 'Weather:')
+    text = text.replace('📅', 'Today\'s schedule:')
+    text = text.replace('📧', 'Emails:')
+    text = text.replace('💬', 'Slack:')
+    text = text.replace('📋', 'Tasks:')
     text = text.replace('•', '')
+    text = text.replace('From:', 'From')
+    text = text.replace('Subject:', 'Subject')
     
-    # Add pauses between sections
-    text = text.replace('☀️', '. Weather. ')
-    text = text.replace('📅', '. Schedule. ')
-    text = text.replace('📧', '. Emails. ')
-    text = text.replace('💬', '. Slack mentions. ')
-    text = text.replace('📋', '. Priority tasks. ')
+    # Remove extra whitespace
+    text = '\n'.join(line.strip() for line in text.split('\n') if line.strip())
     
-    # Remove extra spaces
-    text = ' '.join(text.split())
-    
-    # Limit to 5000 chars for Alexa (roughly 15 minutes of speech)
+    # Limit to 5000 chars
     if len(text) > 5000:
         text = text[:4997] + "..."
     
@@ -96,11 +92,7 @@ def format_for_alexa(text: str) -> str:
 
 @app.post("/alexa")
 async def handle_alexa(req: AlexaRequest):
-    """
-    Receive query from Alexa skill.
-    Forward to OpenClaw or handle special intents.
-    Return response.
-    """
+    """Handle Alexa requests"""
     query = req.query.strip()
     
     if not query:
@@ -110,6 +102,7 @@ async def handle_alexa(req: AlexaRequest):
     if is_morning_report_query(query):
         report = get_morning_report()
         formatted = format_for_alexa(report)
+        print(f"Alexa report length: {len(formatted)} chars", file=sys.stderr)
         return AlexaResponse(speak=formatted)
     
     # Default: forward to OpenClaw
@@ -129,7 +122,6 @@ async def handle_alexa(req: AlexaRequest):
                 data = response.json()
                 reply = data.get("message", "No response received")
                 
-                # Shorten for voice if needed
                 if len(reply) > 500:
                     reply = reply[:497] + "..."
                 
