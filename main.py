@@ -33,7 +33,7 @@ No Slack mentions today.
 No priority tasks.
 
 ════════════════════════════════════════════════════════════
-Report generated at 05:24 PM
+Report generated at 05:26 PM
 """
 
 def format_for_alexa(text: str) -> str:
@@ -88,14 +88,20 @@ async def handle_alexa(request: Request):
         text = format_for_alexa(SAMPLE_REPORT)
         output_type = "SSML"
     
+    response_speech = {
+        "type": output_type
+    }
+    
+    if output_type == "SSML":
+        response_speech["ssml"] = text
+    else:
+        response_speech["text"] = text
+    
     return {
         "version": "1.0",
         "sessionAttributes": {},
         "response": {
-            "outputSpeech": {
-                "type": output_type,
-                ("ssml" if output_type == "SSML" else "text"): text
-            },
+            "outputSpeech": response_speech,
             "shouldEndSession": True
         }
     }
