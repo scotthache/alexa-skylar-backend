@@ -12,10 +12,13 @@ Tuesday, April 14, 2026
 Wellesley, Ontario Weather:
 Temperature: 20°C
 Conditions: Sunny
+Humidity: 60%
+Wind: 17 km/h
 
 📋 CALENDAR
 ────────────────────────────────────────────────────────────
-No upcoming events today.
+ • 12:00 PM - Scott & Catherine - Open Elevate Q&A
+ • 1:00 PM - The Boys & Catherine: LC communication & Elevate Billing
 
 📋 EMAILS
 ────────────────────────────────────────────────────────────
@@ -30,32 +33,47 @@ No Slack mentions today.
 No priority tasks.
 
 ════════════════════════════════════════════════════════════
-Report generated at 05:20 PM
+Report generated at 05:24 PM
 """
 
 def format_for_alexa(text: str) -> str:
-    """Format report for Alexa with SSML"""
-    intro = "Good morning Scott. <break time='500ms'/> It's Skylar with your morning report. <break time='1s'/> "
+    """Format report for Alexa with natural language"""
     
-    text = re.sub(r'═+', '', text)
-    text = re.sub(r'─+', '', text)
-    text = text.replace('DAILY MORNING REPORT', '')
-    text = text.replace('Tuesday, April', '')
-    text = text.replace('📋 WEATHER', '<break time="500ms"/> Weather. ')
-    text = text.replace('📋 CALENDAR', '<break time="500ms"/> Calendar. ')
-    text = text.replace('📋 EMAILS', '<break time="500ms"/> Emails. ')
-    text = text.replace('📋 SLACK', '<break time="500ms"/> Slack. ')
-    text = text.replace('📋 TRELLO', '<break time="500ms"/> Priority Tasks. ')
-    text = text.replace('☀️', '')
-    text = text.replace('•', '')
+    # Extract date
+    date_match = re.search(r'(Tuesday|Wednesday|Thursday|Friday|Monday), (.*?)\n', text)
+    date_str = date_match.group(2) if date_match else "today"
     
-    lines = [line.strip() for line in text.split('\n') if line.strip() and 'Report generated' not in line]
-    continuous = ' '.join(lines)
-    continuous = re.sub(r'\s+', ' ', continuous)
+    # Extract weather
+    weather_temp = re.search(r'Temperature: (\d+)°C', text)
+    weather_cond = re.search(r'Conditions: (\w+)', text)
+    temp = weather_temp.group(1) if weather_temp else "20"
+    cond = weather_cond.group(1) if weather_cond else "sunny"
     
-    closing = " <break time='500ms'/> That's your complete morning briefing. Have a great day!"
-    full = intro + continuous + closing
+    # Extract calendar events
+    calendar_section = re.search(r'📋 CALENDAR.*?(?=📋|════)', text, re.DOTALL)
+    calendar_events = []
+    if calendar_section:
+        event_lines = re.findall(r'•\s+(.*?)(?:\n|$)', calendar_section.group(0))
+        calendar_events = event_lines
     
+    # Build natural response
+    intro = f"Good morning Scott. It's Skylar with your morning report for {date_str}. "
+    
+    weather = f"The current weather in Wellesley is {temp} degrees and {cond.lower()}. "
+    
+    if calendar_events:
+        calendar = "On your schedule today you have "
+        for i, event in enumerate(calendar_events):
+            if i == len(calendar_events) - 1:
+                calendar += f"and {event}. "
+            else:
+                calendar += f"{event}, "
+    else:
+        calendar = "You have no events scheduled today. "
+    
+    closing = "Have a great day!"
+    
+    full = intro + weather + calendar + closing
     return f"<speak>{full}</speak>"
 
 @app.post("/alexa")
@@ -76,7 +94,7 @@ async def handle_alexa(request: Request):
         "response": {
             "outputSpeech": {
                 "type": output_type,
-                "ssml" if output_type == "SSML" else "text": text
+                ("ssml" if output_type == "SSML" else "text"): text
             },
             "shouldEndSession": True
         }
