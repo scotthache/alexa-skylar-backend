@@ -7,13 +7,15 @@ import subprocess
 from datetime import datetime
 import sys
 import re
+import json
 
 load_dotenv()
 
 app = FastAPI()
 
 class AlexaRequest(BaseModel):
-    query: str
+    query: str = None
+    request: dict = None
 
 class AlexaResponse(BaseModel):
     speak: str
@@ -26,7 +28,9 @@ SKYLAR_IMAGE_URL = "https://drive.google.com/uc?export=view&id=1JPWChru2sYvAfSti
 
 def is_morning_report_query(query: str) -> bool:
     """Check if query is asking for morning report"""
-    keywords = ["morning report", "daily report", "read my report", "what's my report"]
+    if not query:
+        return False
+    keywords = ["morning report", "daily report", "read my report", "what's my report", "read report", "morning briefing"]
     return any(k in query.lower() for k in keywords)
 
 def get_morning_report() -> str:
@@ -41,22 +45,15 @@ def get_morning_report() -> str:
         
         print(f"DEBUG: Script returned code {result.returncode}", file=sys.stderr)
         print(f"DEBUG: STDOUT length: {len(result.stdout)}", file=sys.stderr)
-        print(f"DEBUG: STDERR: {result.stderr[:500]}", file=sys.stderr)
         
         if result.returncode == 0 and result.stdout:
-            # Extract report between the === markers
             lines = result.stdout.split('\n')
-            
-            # Find start (DAILY MORNING REPORT line)
             start_idx = -1
             for i, line in enumerate(lines):
                 if 'DAILY MORNING REPORT' in line:
                     start_idx = i
                     break
             
-            print(f"DEBUG: Found report at line {start_idx}", file=sys.stderr)
-            
-            # Find end (Report generated line)
             end_idx = len(lines)
             for i, line in enumerate(lines):
                 if 'Report generated at' in line:
@@ -65,29 +62,21 @@ def get_morning_report() -> str:
             
             if start_idx >= 0:
                 report_text = '\n'.join(lines[start_idx:end_idx])
-                print(f"DEBUG: Extracted {len(report_text)} chars of report", file=sys.stderr)
                 return report_text
             else:
-                print(f"DEBUG: Could not find report start marker", file=sys.stderr)
                 return "I couldn't extract the morning report content."
         else:
-            print(f"DEBUG: Script failed or no output", file=sys.stderr)
             return "There was an error generating the morning report."
     except subprocess.TimeoutExpired:
-        print(f"DEBUG: Script timeout", file=sys.stderr)
         return "The morning report took too long to generate."
     except Exception as e:
         print(f"DEBUG: Exception: {str(e)}", file=sys.stderr)
-        import traceback
-        traceback.print_exc(file=sys.stderr)
-        return f"Error: {str(e)[:50]}"
+        return f"Error generating report"
 
 def format_for_alexa(text: str) -> str:
     """Format text for Alexa speech as one continuous flow"""
-    # Add intro
     intro = "Good morning Scott. It's Skylar with your morning report. "
     
-    # Clean up all visual separators
     text = re.sub(r'═+', '', text)
     text = re.sub(r'─+', '', text)
     text = text.replace('DAILY MORNING REPORT', '')
@@ -97,7 +86,6 @@ def format_for_alexa(text: str) -> str:
     text = text.replace('Friday, April', '')
     text = text.replace('Monday, April', '')
     
-    # Replace emoji headers with spoken equivalents
     text = text.replace('📋 WEATHER', 'WEATHER.')
     text = text.replace('📋 CALENDAR', 'CALENDAR.')
     text = text.replace('📋 EMAILS', 'EMAILS.')
@@ -107,29 +95,18 @@ def format_for_alexa(text: str) -> str:
     text = text.replace('📅', '')
     text = text.replace('📧', '')
     text = text.replace('💬', '')
-    
-    # Clean up metadata
     text = text.replace('•', '')
     text = text.replace('From:', 'From')
     text = text.replace('Subject:', 'Subject')
     
-    # Join all lines into continuous speech with period separators
     lines = [line.strip() for line in text.split('\n') if line.strip() and 'Report generated' not in line]
     continuous_text = ' '.join(lines)
-    
-    # Add spacing around section markers for better pacing
     continuous_text = re.sub(r'(WEATHER|CALENDAR|EMAILS|SLACK|PRIORITY TASKS)\.', r'\1. ', continuous_text)
-    
-    # Clean up multiple spaces
     continuous_text = re.sub(r'\s+', ' ', continuous_text)
     
-    # Add closing
     closing = " That's your complete morning briefing. Have a great day!"
-    
-    # Combine
     full_text = intro + continuous_text + closing
     
-    # Limit to 5000 chars
     if len(full_text) > 5000:
         full_text = full_text[:4997] + "..."
     
@@ -137,25 +114,60 @@ def format_for_alexa(text: str) -> str:
 
 def add_image_to_ssml(text: str) -> str:
     """Wrap text in SSML with image for Echo Show devices"""
-    # SSML with image display
     ssml = f'<speak><amazon:image id="Skylar" src="{SKYLAR_IMAGE_URL}"/>{text}</speak>'
     return ssml
 
 @app.post("/alexa")
-async def handle_alexa(req: AlexaRequest):
-    """Handle Alexa requests"""
-    query = req.query.strip()
+async def handle_alexa(req: dict):
+    """Handle Alexa requests - accept raw JSON"""
+    print(f"DEBUG: Received request: {json.dumps(req)[:200]}", file=sys.stderr)
+    
+    query = None
+    
+    # Try to extract query from different formats
+    if isinstance(req, dict):
+        query = req.get('query')
+        if not query and 'request' in req:
+            # Alexa skill format
+            request_obj = req['request']
+            if 'intent' in request_obj:
+                intent_name = request_obj['intent'].get('name', '')
+                print(f"DEBUG: Intent name: {intent_name}", file=sys.stderr)
+                
+                if intent_name == 'ReadMorningReportIntent':
+                    report = get_morning_report()
+                    formatted = format_for_alexa(report)
+                    formatted = add_image_to_ssml(formatted)
+                    return AlexaResponse(speak=formatted)
+                
+                # Check intent slots for query
+                if 'slots' in request_obj['intent']:
+                    slots = request_obj['intent']['slots']
+                    if 'query' in slots:
+                        query = slots['query'].get('value')
+            
+            # Also check for utterance text
+            if 'intent' in request_obj and not query:
+                intent_name = request_obj['intent'].get('name', '')
+                # Fallback: if we got here with intent name, respond accordingly
+                if intent_name:
+                    print(f"DEBUG: No query found, intent was {intent_name}", file=sys.stderr)
+    
+    if not query:
+        query = ""
+    
+    query = str(query).strip()
+    print(f"DEBUG: Query extracted: '{query}'", file=sys.stderr)
     
     if not query:
         return AlexaResponse(speak="I didn't catch that. Could you repeat?")
     
-    # Check for morning report intent
+    # Check for morning report
     if is_morning_report_query(query):
+        print(f"DEBUG: Detected morning report query", file=sys.stderr)
         report = get_morning_report()
         formatted = format_for_alexa(report)
-        # Add image for Echo Show devices
-        if "echo show" in query.lower() or True:  # Always add for morning report
-            formatted = add_image_to_ssml(formatted)
+        formatted = add_image_to_ssml(formatted)
         return AlexaResponse(speak=formatted)
     
     # Default: forward to OpenClaw
@@ -174,14 +186,11 @@ async def handle_alexa(req: AlexaRequest):
             if response.status_code == 200:
                 data = response.json()
                 reply = data.get("message", "No response received")
-                
                 if len(reply) > 500:
                     reply = reply[:497] + "..."
-                
                 return AlexaResponse(speak=reply)
             else:
                 return AlexaResponse(speak="Sorry, I couldn't process that right now.")
-    
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         return AlexaResponse(speak="There was an error processing your request.")
