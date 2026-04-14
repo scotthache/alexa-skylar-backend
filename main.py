@@ -68,15 +68,18 @@ def get_morning_report() -> str:
 
 def format_for_alexa(text: str) -> str:
     """Format text for Alexa speech with proper pacing"""
+    # Add intro
+    intro = "Good morning! Here's your morning report from Skylar. "
+    
     # Clean up visual separators
     text = re.sub(r'═+', '', text)
     text = re.sub(r'─+', '', text)
     text = text.replace('📋', '')
     text = text.replace('☀️', 'Weather:')
     text = text.replace('📅', 'Today\'s schedule:')
-    text = text.replace('📧', 'Emails:')
-    text = text.replace('💬', 'Slack:')
-    text = text.replace('📋', 'Tasks:')
+    text = text.replace('📧', 'Emails needing attention:')
+    text = text.replace('💬', 'Slack mentions:')
+    text = text.replace('📋', 'Priority tasks:')
     text = text.replace('•', '')
     text = text.replace('From:', 'From')
     text = text.replace('Subject:', 'Subject')
@@ -84,11 +87,14 @@ def format_for_alexa(text: str) -> str:
     # Remove extra whitespace
     text = '\n'.join(line.strip() for line in text.split('\n') if line.strip())
     
-    # Limit to 5000 chars
-    if len(text) > 5000:
-        text = text[:4997] + "..."
+    # Combine intro + report
+    full_text = intro + text
     
-    return text
+    # Limit to 5000 chars
+    if len(full_text) > 5000:
+        full_text = full_text[:4997] + "..."
+    
+    return full_text
 
 @app.post("/alexa")
 async def handle_alexa(req: AlexaRequest):
