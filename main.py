@@ -5,13 +5,35 @@ app = FastAPI()
 
 SKYLAR_IMAGE_URL = "https://drive.google.com/uc?export=view&id=1JPWChru2sYvAfStivzhtZdMecDGWQ9gT"
 
-def get_cached_report() -> str:
-    """Read the cached morning report"""
-    try:
-        with open('/Users/scotthache/.openclaw/workspace/alexa_report_cache.txt', 'r') as f:
-            return f.read()
-    except:
-        return "The morning report is not available."
+SAMPLE_REPORT = """☀️ DAILY MORNING REPORT
+Tuesday, April 14, 2026
+════════════════════════════════════════════════════════════
+
+📋 WEATHER
+────────────────────────────────────────────────────────────
+Wellesley, Ontario Weather:
+Temperature: 20°C
+Conditions: Sunny
+
+📋 CALENDAR
+────────────────────────────────────────────────────────────
+No upcoming events today.
+
+📋 EMAILS
+────────────────────────────────────────────────────────────
+No unread emails.
+
+📋 SLACK
+────────────────────────────────────────────────────────────
+No Slack mentions today.
+
+📋 TRELLO
+────────────────────────────────────────────────────────────
+No priority tasks.
+
+════════════════════════════════════════════════════════════
+Report generated at 05:16 PM
+"""
 
 def format_for_alexa(text: str) -> str:
     """Format report for Alexa"""
@@ -56,8 +78,7 @@ async def handle_alexa(request: Request):
     text = "I'm not sure how to help with that."
     
     if intent_name == "ReadMorningReportIntent":
-        report = get_cached_report()
-        text = format_for_alexa(report)
+        text = format_for_alexa(SAMPLE_REPORT)
     
     return {
         "version": "1.0",
