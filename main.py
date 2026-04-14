@@ -4,7 +4,6 @@ import httpx
 import os
 from dotenv import load_dotenv
 import subprocess
-from datetime import datetime
 import sys
 import re
 import json
@@ -13,33 +12,21 @@ load_dotenv()
 
 app = FastAPI()
 
-class AlexaResponse(BaseModel):
-    version: str = "1.0"
-    sessionAttributes: dict = {}
-    response: dict = {}
-
 OPENCLAW_SESSION_KEY = os.getenv("OPENCLAW_SESSION_KEY", "default")
 OPENCLAW_API_URL = os.getenv("OPENCLAW_API_URL", "http://localhost:8000")
 SKYLAR_IMAGE_URL = "https://drive.google.com/uc?export=view&id=1JPWChru2sYvAfStivzhtZdMecDGWQ9gT"
 
-def is_morning_report_intent(intent_name: str) -> bool:
-    """Check if intent is morning report"""
-    return intent_name == "ReadMorningReportIntent"
-
-def is_morning_report_query(query: str) -> bool:
-    """Check if query text is about morning report"""
-    if not query:
-        return False
-    keywords = ["morning report", "daily report", "read my report", "read report", "morning briefing"]
-    return any(k in query.lower() for k in keywords)
-
 def get_morning_report() -> str:
-    """Run the morning report script"""
+    """Get morning report from Mac via SSH"""
     try:
+        # SSH into Mac and run the report script
         result = subprocess.run([
-            'python3',
-            '/Users/scotthache/.openclaw/workspace/daily_morning_report.py'
+            'ssh', 
+            'scotthache@skylar.local',
+            'python3 /Users/scotthache/.openclaw/workspace/daily_morning_report.py'
         ], capture_output=True, text=True, timeout=60)
+        
+        print(f"SSH return code: {result.returncode}", file=sys.stderr)
         
         if result.returncode == 0 and result.stdout:
             lines = result.stdout.split('\n')
@@ -118,12 +105,9 @@ async def handle_alexa(request: Request):
     """Handle Alexa skill request"""
     try:
         body = await request.json()
-        print(f"Request: {json.dumps(body)[:200]}", file=sys.stderr)
         
         intent_name = body.get('request', {}).get('intent', {}).get('name', '')
         intent_slots = body.get('request', {}).get('intent', {}).get('slots', {})
-        
-        print(f"Intent: {intent_name}", file=sys.stderr)
         
         # Handle morning report intent
         if intent_name == "ReadMorningReportIntent":
@@ -137,9 +121,7 @@ async def handle_alexa(request: Request):
             if 'query' in intent_slots:
                 query = intent_slots['query'].get('value', '')
             
-            print(f"Query: {query}", file=sys.stderr)
-            
-            if is_morning_report_query(query):
+            if query and any(k in query.lower() for k in ["morning report", "daily report", "read my report"]):
                 report = get_morning_report()
                 formatted = format_for_alexa(report)
                 return build_alexa_response(formatted)
@@ -166,13 +148,10 @@ async def handle_alexa(request: Request):
                 except:
                     pass
         
-        # Default response
         return build_alexa_response("I'm not sure how to help with that.")
         
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
-        import traceback
-        traceback.print_exc(file=sys.stderr)
         return build_alexa_response("There was an error processing your request.")
 
 @app.get("/health")
