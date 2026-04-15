@@ -1,16 +1,39 @@
 from fastapi import FastAPI, Request
 import re
+import subprocess
+import tempfile
+import os
 
 app = FastAPI()
 
-CACHE_FILE = "/Users/scotthache/.openclaw/workspace/alexa_report_cache.txt"
+REPORT_NAME = "alexa-morning-report-cache.txt"
+
 
 def get_report_text() -> str:
     try:
-        with open(CACHE_FILE, "r") as f:
-            return f.read()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = subprocess.run(
+                [
+                    "gog",
+                    "drive",
+                    "download",
+                    REPORT_NAME,
+                    "--output",
+                    os.path.join(tmpdir, REPORT_NAME),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            path = os.path.join(tmpdir, REPORT_NAME)
+            if result.returncode == 0 and os.path.exists(path):
+                with open(path, "r") as f:
+                    return f.read()
     except Exception:
-        return """☀️ DAILY MORNING REPORT
+        pass
+
+    return """☀️ DAILY MORNING REPORT
 Wednesday, April 15, 2026
 
 📋 WEATHER
@@ -24,6 +47,7 @@ No events found.
 📋 EMAILS
 No unread emails.
 """
+
 
 def format_for_alexa(text: str) -> str:
     date_match = re.search(r'(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), (.*?)\n', text)
@@ -63,6 +87,7 @@ def format_for_alexa(text: str) -> str:
     closing = f"{email_summary} Have a great day!"
     return intro + weather + calendar + closing
 
+
 @app.post("/alexa")
 async def handle_alexa(request: Request):
     body = await request.json()
@@ -85,6 +110,7 @@ async def handle_alexa(request: Request):
             "shouldEndSession": True
         }
     }
+
 
 @app.get("/health")
 async def health():
