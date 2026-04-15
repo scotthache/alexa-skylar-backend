@@ -1,35 +1,18 @@
 from fastapi import FastAPI, Request
 import re
-import subprocess
-import tempfile
-import os
+import httpx
 
 app = FastAPI()
 
-REPORT_NAME = "alexa-morning-report-cache.txt"
+REPORT_URL = "PASTE_PUBLIC_DRIVE_DOWNLOAD_URL_HERE"
 
 
-def get_report_text() -> str:
+async def get_report_text() -> str:
     try:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            result = subprocess.run(
-                [
-                    "gog",
-                    "drive",
-                    "download",
-                    REPORT_NAME,
-                    "--output",
-                    os.path.join(tmpdir, REPORT_NAME),
-                ],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-
-            path = os.path.join(tmpdir, REPORT_NAME)
-            if result.returncode == 0 and os.path.exists(path):
-                with open(path, "r") as f:
-                    return f.read()
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(REPORT_URL)
+            if resp.status_code == 200 and resp.text.strip():
+                return resp.text
     except Exception:
         pass
 
@@ -96,7 +79,7 @@ async def handle_alexa(request: Request):
     text = "I'm not sure how to help with that."
 
     if intent_name == "ReadMorningReportIntent":
-        report = get_report_text()
+        report = await get_report_text()
         text = format_for_alexa(report)
 
     return {
