@@ -37,20 +37,65 @@ def format_for_alexa(text: str) -> str:
         match = re.search(rf'^\s*{re.escape(label)}:\s*(.+)$', text, re.MULTILINE)
         return match.group(1).strip() if match else None
 
+    def extract_section(name: str, next_sections=None):
+        next_sections = next_sections or []
+        if next_sections:
+            next_alt = '|'.join(re.escape(s) for s in next_sections)
+            pattern = rf'{re.escape(name)}(.*?)(?=\n[^\n]*(?:{next_alt})|\n?═|$)'
+        else:
+            pattern = rf'{re.escape(name)}(.*?)(?=\n?═|$)'
+        match = re.search(pattern, text, re.DOTALL)
+        return match.group(1).strip() if match else ''
+
+    def section_bullets(section_text: str, prefix='•'):
+        items = []
+        for raw in section_text.splitlines():
+            cleaned = raw.strip()
+            if cleaned.startswith(prefix):
+                items.append(cleaned[len(prefix):].strip())
+        return items
+
+    def spoken_temp_phrase(temp_text: str):
+        temp_match = re.search(r'(-?\d+)°C', temp_text)
+        feels_match = re.search(r'feels like (-?\d+)°C', temp_text, re.IGNORECASE)
+        temp = int(temp_match.group(1)) if temp_match else None
+        feels_like = int(feels_match.group(1)) if feels_match else None
+        if temp is None:
+            return '', None, None
+        phrase = f'{temp} degrees'
+        if feels_like is not None and feels_like != temp:
+            phrase += f', feels like {feels_like}'
+        return phrase, temp, feels_like if feels_like is not None else temp
+
+    def spoken_forecast_phrase(forecast_text: str):
+        match = re.search(r'High\s+(-?\d+)°C,\s+low\s+(-?\d+)°C,\s*(.*)', forecast_text, re.IGNORECASE)
+        if match:
+            return f'a high of {match.group(1)}, a low of {match.group(2)}, with {match.group(3).strip().lower()}'
+        return forecast_text.lower().replace('°c', '')
+
+    def condense_news_item(item: str):
+        item = re.sub(r'\s+', ' ', item).strip()
+        if ' — ' in item:
+            title, summary = item.split(' — ', 1)
+            summary = re.sub(r'\[[^\]]*\]', '', summary).strip()
+            first_sentence = re.split(r'(?<=[.!?])\s+', summary)[0].strip()
+            first_sentence = first_sentence.rstrip(' .')
+            if len(first_sentence) > 180:
+                first_sentence = first_sentence[:177].rsplit(' ', 1)[0] + '...'
+            return f'{title}. {first_sentence}.' if first_sentence else f'{title}.'
+        return item.rstrip('.') + '.'
+
     date_match = re.search(r'(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), (.*?)\n', text)
-    date_str = date_match.group(2) if date_match else "today"
+    date_str = date_match.group(2) if date_match else 'today'
 
     condition = extract_line('Current conditions') or extract_line('Conditions')
-    temp_line = extract_line('Temperature') or 'unknown'
+    temp_line = extract_line('Temperature') or ''
     forecast_line = extract_line("Today's forecast") or ''
     rain_line = extract_line('Chance of rain') or '0%'
     wind_line = extract_line('Wind') or ''
     humidity_line = extract_line('Humidity') or ''
 
-    temp_match = re.search(r'(-?\d+)°C', temp_line)
-    feels_match = re.search(r'feels like (-?\d+)°C', temp_line, re.IGNORECASE)
-    temp = int(temp_match.group(1)) if temp_match else None
-    feels_like = int(feels_match.group(1)) if feels_match else temp
+    temp_phrase, temp, feels_like = spoken_temp_phrase(temp_line)
 
     if not condition and forecast_line:
         forecast_parts = [part.strip() for part in forecast_line.split(',') if part.strip()]
@@ -63,7 +108,7 @@ def format_for_alexa(text: str) -> str:
     rain_chance = int(rain_match.group(1)) if rain_match else 0
 
     cond_lower = condition.lower()
-    weather_adlib = ""
+    weather_adlib = ''
     if rain_chance >= 60 or 'rain' in cond_lower or 'shower' in cond_lower or 'drizzle' in cond_lower:
         weather_adlib = "It looks like an umbrella kind of day, unless you're in the mood for surprise character development. "
     elif temp is not None and temp < 0:
@@ -71,70 +116,80 @@ def format_for_alexa(text: str) -> str:
     elif temp is not None and temp <= 5:
         weather_adlib = "It's got a proper chill to it, so a good jacket is a smart move. "
     elif 'snow' in cond_lower or 'flurr' in cond_lower or 'ice' in cond_lower:
-        weather_adlib = "Watch your step out there. The weather is feeling a little dramatic. "
+        weather_adlib = 'Watch your step out there. The weather is feeling a little dramatic. '
     elif 'sun' in cond_lower or 'clear' in cond_lower:
-        weather_adlib = "Pretty decent out there, by Ontario standards. "
+        weather_adlib = 'Pretty decent out there, by Ontario standards. '
     elif 'fog' in cond_lower or 'mist' in cond_lower:
         weather_adlib = "It's a bit murky, so maybe let the coffee wake up before the driving does. "
 
-    calendar_section = re.search(r'CALENDAR(.*?)(?=EMAILS|SLACK|═|$)', text, re.DOTALL)
-    calendar_events = []
-    if calendar_section:
-        event_lines = re.findall(r'•\s+(.*?)(?:\n|$)', calendar_section.group(1))
-        calendar_events = [e.strip() for e in event_lines if e.strip()]
+    calendar_events = section_bullets(extract_section('CALENDAR', ['EMAILS', 'LOCAL NEWS', 'WORLD NEWS', 'SLACK']))
 
-    email_section = re.search(r'EMAILS(.*?)(?=SLACK|═|$)', text, re.DOTALL)
-    email_summary = "Inbox is calm right now, which is always a nice way to start the day."
-    if email_section:
-        email_text = email_section.group(1).strip()
-        email_count = len(re.findall(r'•\s+From:', email_text))
-        if email_text and 'No unread emails' not in email_text and email_count > 0:
-            if email_count == 1:
-                email_summary = 'You have one unread email waiting for you.'
-            else:
-                email_summary = f'You have about {email_count} unread emails worth a look.'
+    email_section = extract_section('EMAILS', ['LOCAL NEWS', 'WORLD NEWS', 'SLACK'])
+    email_count = len(re.findall(r'•\s+From:', email_section))
+    if email_count == 0:
+        email_summary = 'Inbox is calm right now, which is always a nice way to start the day.'
+    elif email_count == 1:
+        email_summary = 'You have one email that looks like it wants attention.'
+    else:
+        email_summary = f'You have about {email_count} emails worth a look.'
 
-    outlook_match = re.search(r'Next few days outlook:\n(.*?)(?=\n\s*📋|\n\s*SLACK|\n?═|$)', text, re.DOTALL)
-    outlook_lines = []
-    if outlook_match:
-        for raw in outlook_match.group(1).splitlines():
-            cleaned = raw.strip()
-            if cleaned.startswith('- '):
-                outlook_lines.append(cleaned[2:])
+    outlook_lines = section_bullets(extract_section('Next few days outlook:', ['📋 CALENDAR', 'CALENDAR', 'EMAILS', 'LOCAL NEWS', 'WORLD NEWS', 'SLACK']), prefix='-')
+    local_news_items = section_bullets(extract_section('LOCAL NEWS', ['WORLD NEWS', 'SLACK']))
+    world_news_items = section_bullets(extract_section('WORLD NEWS', ['SLACK']))
 
     intro = f"Good morning Scott. You're listening to Skylar FM, coming to you live with your morning report for {date_str}. "
-    weather = f"In Waterloo right now, it's {condition.lower()}"
-    if temp_line and temp_line != 'unknown':
-        weather += f" and {temp_line}. "
+
+    weather = f"Starting with the weather: in Waterloo right now, it's {condition.lower()}"
+    if temp_phrase:
+        weather += f' and {temp_phrase}. '
     else:
         weather += '. '
     if forecast_line:
-        weather += f"For today, {forecast_line.lower()}. "
+        weather += f"For today, expect {spoken_forecast_phrase(forecast_line)}. "
     if wind_line:
-        weather += f"Wind is {wind_line}. "
+        weather += f'Wind is {wind_line}. '
     if humidity_line:
-        weather += f"Humidity is sitting at {humidity_line}. "
+        weather += f'Humidity is at {humidity_line}. '
     weather += weather_adlib
+
+    outlook = ''
+    if outlook_lines:
+        if len(outlook_lines) == 1:
+            outlook = f"Looking a little farther out, {spoken_forecast_phrase(outlook_lines[0].split(': ', 1)[1]) if ': ' in outlook_lines[0] else outlook_lines[0]}. "
+        else:
+            chunks = []
+            for item in outlook_lines:
+                if ': ' in item:
+                    day, details = item.split(': ', 1)
+                    chunks.append(f'{day} brings {spoken_forecast_phrase(details)}')
+                else:
+                    chunks.append(item)
+            outlook = 'For the next few days, ' + '; then '.join(chunks) + '. '
 
     if calendar_events:
         if len(calendar_events) == 1:
-            calendar = f"On the schedule today, you've got {calendar_events[0]}. "
+            calendar = f"Then on your schedule today, you've got {calendar_events[0]}. "
         elif len(calendar_events) == 2:
-            calendar = f"On the schedule today, you've got {calendar_events[0]}, and {calendar_events[1]}. "
+            calendar = f"Then on your schedule today, you've got {calendar_events[0]}, and {calendar_events[1]}. "
         else:
-            calendar = "On the schedule today, you've got " + ", ".join(calendar_events[:-1]) + f", and {calendar_events[-1]}. "
+            calendar = "Then on your schedule today, you've got " + ', '.join(calendar_events[:-1]) + f", and {calendar_events[-1]}. "
     else:
-        calendar = "Your calendar is clear today, which is either peaceful or suspicious. "
+        calendar = 'Then on the schedule, nothing major is booked, which is either peaceful or suspicious. '
 
-    outlook = ""
-    if outlook_lines:
-        if len(outlook_lines) == 1:
-            outlook = f"Looking ahead, {outlook_lines[0]}. "
-        else:
-            outlook = "Looking ahead, " + "; then ".join(outlook_lines) + ". "
+    emails = 'Next up, ' + email_summary[:1].lower() + email_summary[1:] + ' '
 
-    closing = f"{email_summary} That's the latest from the Skylar morning desk. Have a great day!"
-    return intro + weather + calendar + outlook + closing
+    local_news = ''
+    if local_news_items:
+        local_bits = [condense_news_item(item) for item in local_news_items[:3]]
+        local_news = 'In local news, ' + ' '.join(local_bits) + ' '
+
+    world_news = ''
+    if world_news_items:
+        world_bits = [condense_news_item(item) for item in world_news_items[:3]]
+        world_news = 'And around the world, ' + ' '.join(world_bits) + ' '
+
+    closing = "That's the latest from the Skylar morning desk. Have a great day!"
+    return intro + weather + outlook + calendar + emails + local_news + world_news + closing
 
 
 @app.post("/alexa")
