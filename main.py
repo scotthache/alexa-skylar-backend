@@ -134,8 +134,9 @@ def format_for_alexa(text: str) -> str:
         email_summary = f'You have about {email_count} emails worth a look.'
 
     outlook_lines = section_bullets(extract_section('Next few days outlook:', ['📋 CALENDAR', 'CALENDAR', 'EMAILS', 'LOCAL NEWS', 'WORLD NEWS', 'SLACK']), prefix='-')
-    local_news_items = section_bullets(extract_section('LOCAL NEWS', ['WORLD NEWS', 'SLACK']))
-    world_news_items = section_bullets(extract_section('WORLD NEWS', ['SLACK']))
+    local_news_items = section_bullets(extract_section('LOCAL NEWS', ['WORLD NEWS', "WHAT'S GOIN' ON IN THE AI WORLD", 'SLACK']))
+    world_news_items = section_bullets(extract_section('WORLD NEWS', ["WHAT'S GOIN' ON IN THE AI WORLD", 'SLACK']))
+    ai_world_items = section_bullets(extract_section("WHAT'S GOIN' ON IN THE AI WORLD", ['SLACK']))
 
     intro = f"Good morning Scott. You're listening to Skylar FM, coming to you live with your morning report for {date_str}. "
 
@@ -188,8 +189,13 @@ def format_for_alexa(text: str) -> str:
         world_bits = [condense_news_item(item) for item in world_news_items[:3]]
         world_news = 'And around the world, ' + ' '.join(world_bits) + ' '
 
+    ai_world = ''
+    if ai_world_items:
+        ai_bits = [condense_news_item(item) for item in ai_world_items[:3]]
+        ai_world = "And now, what's goin' on in the AI world: " + ' '.join(ai_bits) + ' '
+
     closing = "That's the latest from the Skylar morning desk. Have a great day!"
-    return intro + weather + outlook + calendar + emails + local_news + world_news + closing
+    return intro + weather + outlook + calendar + emails + local_news + world_news + ai_world + closing
 
 
 @app.post("/alexa")
