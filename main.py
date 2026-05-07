@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
 import re
+from datetime import datetime
 import httpx
 
 app = FastAPI()
@@ -72,6 +73,36 @@ def format_for_alexa(text: str) -> str:
         if match:
             return f'a high of {match.group(1)}, a low of {match.group(2)}, with {match.group(3).strip().lower()}'
         return forecast_text.lower().replace('°c', '')
+
+    def natural_time_label(value: str):
+        value = value.strip()
+        try:
+            dt = datetime.strptime(value, '%I:%M %p')
+        except ValueError:
+            return value
+
+        hour = dt.hour
+        minute = dt.minute
+        if hour == 12 and minute == 0:
+            return 'noon'
+        if hour == 0 and minute == 0:
+            return 'midnight'
+
+        spoken_hour = hour % 12 or 12
+        if minute == 0:
+            return f"{spoken_hour} o'clock"
+        return dt.strftime('%I:%M %p').lstrip('0').lower()
+
+    def naturalize_calendar_event(event_text: str):
+        match = re.match(r'(\d{1,2}:\d{2} [AP]M)–(\d{1,2}:\d{2} [AP]M):\s*(.*)', event_text)
+        if not match:
+            return event_text
+        start, end, title = match.groups()
+        start_spoken = natural_time_label(start)
+        end_spoken = natural_time_label(end)
+        if end_spoken in ('noon', 'midnight') or "o'clock" in end_spoken:
+            return f'{title} from {start_spoken} to {end_spoken}'
+        return f'{title} from {start_spoken} to {end_spoken}'
 
     def condense_news_item(item: str):
         item = re.sub(r'\s+', ' ', item).strip()
@@ -169,11 +200,12 @@ def format_for_alexa(text: str) -> str:
 
     if calendar_events:
         if len(calendar_events) == 1:
-            calendar = f"Then on your schedule today, you've got {calendar_events[0]}. "
+            calendar = f"Then on your schedule today, you've got {naturalize_calendar_event(calendar_events[0])}. "
         elif len(calendar_events) == 2:
-            calendar = f"Then on your schedule today, you've got {calendar_events[0]}, and {calendar_events[1]}. "
+            calendar = f"Then on your schedule today, you've got {naturalize_calendar_event(calendar_events[0])}, and {naturalize_calendar_event(calendar_events[1])}. "
         else:
-            calendar = "Then on your schedule today, you've got " + ', '.join(calendar_events[:-1]) + f", and {calendar_events[-1]}. "
+            spoken_events = [naturalize_calendar_event(event) for event in calendar_events]
+            calendar = "Then on your schedule today, you've got " + ', '.join(spoken_events[:-1]) + f", and {spoken_events[-1]}. "
     else:
         calendar = 'Then on the schedule, nothing major is booked, which is either peaceful or suspicious. '
 
