@@ -4,15 +4,15 @@ import httpx
 
 app = FastAPI()
 
-REPORT_URL = "PASTE_PUBLIC_DRIVE_DOWNLOAD_URL_HERE"
+REPORT_URL = "https://www.psgwebservices.com/skylar/morningreport/report.md"
 
 
 async def get_report_text() -> str:
     try:
         async with httpx.AsyncClient(timeout=20) as client:
             resp = await client.get(REPORT_URL)
-            if resp.status_code == 200 and resp.text.strip():
-                return resp.text
+            if resp.status_code == 200 and resp.content.strip():
+                return resp.content.decode('utf-8', errors='replace')
     except Exception:
         pass
 
@@ -36,18 +36,18 @@ def format_for_alexa(text: str) -> str:
     date_match = re.search(r'(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), (.*?)\n', text)
     date_str = date_match.group(2) if date_match else "today"
 
-    weather_temp = re.search(r'Temperature:\s*(\d+)°C', text)
-    weather_cond = re.search(r'Conditions:\s*([A-Za-z ]+)', text)
+    weather_temp = re.search(r'^\s*Temperature:\s*(\d+)°C', text, re.MULTILINE)
+    weather_cond = re.search(r'^\s*Conditions:\s*([A-Za-z ]+)$', text, re.MULTILINE)
     temp = weather_temp.group(1) if weather_temp else "unknown"
     cond = weather_cond.group(1).strip().lower() if weather_cond else "unavailable"
 
-    calendar_section = re.search(r'📋 CALENDAR(.*?)(?=📋|═|$)', text, re.DOTALL)
+    calendar_section = re.search(r'CALENDAR(.*?)(?=EMAILS|SLACK|═|$)', text, re.DOTALL)
     calendar_events = []
     if calendar_section:
         event_lines = re.findall(r'•\s+(.*?)(?:\n|$)', calendar_section.group(1))
         calendar_events = [e.strip() for e in event_lines if e.strip()]
 
-    email_section = re.search(r'📋 EMAILS(.*?)(?=📋|═|$)', text, re.DOTALL)
+    email_section = re.search(r'EMAILS(.*?)(?=SLACK|═|$)', text, re.DOTALL)
     email_summary = "You have no unread emails."
     if email_section:
         email_text = email_section.group(1).strip()
