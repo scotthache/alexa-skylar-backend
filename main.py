@@ -40,7 +40,7 @@ def format_for_alexa(text: str) -> str:
     date_match = re.search(r'(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), (.*?)\n', text)
     date_str = date_match.group(2) if date_match else "today"
 
-    condition = extract_line('Current conditions') or extract_line('Conditions') or 'unavailable'
+    condition = extract_line('Current conditions') or extract_line('Conditions')
     temp_line = extract_line('Temperature') or 'unknown'
     forecast_line = extract_line("Today's forecast") or ''
     rain_line = extract_line('Chance of rain') or '0%'
@@ -51,6 +51,13 @@ def format_for_alexa(text: str) -> str:
     feels_match = re.search(r'feels like (-?\d+)°C', temp_line, re.IGNORECASE)
     temp = int(temp_match.group(1)) if temp_match else None
     feels_like = int(feels_match.group(1)) if feels_match else temp
+
+    if not condition and forecast_line:
+        forecast_parts = [part.strip() for part in forecast_line.split(',') if part.strip()]
+        if forecast_parts:
+            condition = forecast_parts[-1]
+    if not condition:
+        condition = 'the weather is doing its mysterious thing'
 
     rain_match = re.search(r'(\d+)%', rain_line)
     rain_chance = int(rain_match.group(1)) if rain_match else 0
@@ -96,7 +103,11 @@ def format_for_alexa(text: str) -> str:
                 outlook_lines.append(cleaned[2:])
 
     intro = f"Good morning Scott. You're listening to Skylar FM, coming to you live with your morning report for {date_str}. "
-    weather = f"In Waterloo right now, it's {condition.lower()} and {temp_line}. "
+    weather = f"In Waterloo right now, it's {condition.lower()}"
+    if temp_line and temp_line != 'unknown':
+        weather += f" and {temp_line}. "
+    else:
+        weather += '. '
     if forecast_line:
         weather += f"For today, {forecast_line.lower()}. "
     if wind_line:
